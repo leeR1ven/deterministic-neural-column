@@ -10,11 +10,10 @@ Why this combination:
   * one motor block per transition removes the interference that made two
     transitions collapse to a chance-level 0.58 overlap
 """
-import os
 import sys
 import numpy as np
 import torch as T
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, r'D:\deepseekherness\gpu')
 from sensory import Local3DStack
 import text_encoder as te
 
@@ -185,13 +184,28 @@ for bi, (a, b) in enumerate(zip(SEQ[:-1], SEQ[1:])):
 C = [f[0].cpu().numpy() for f in FP]
 dist = float(np.mean([ov(C[i], C[j]) for i in range(len(C)) for j in range(i + 1, len(C))]))
 alive = 0
+held_states = []
 for k in range(len(ITEMS)):
     x23, x5, m = settle_item(S[k])
     for _ in range(10):
         x23 = (W_p @ x5 + bias > th23 * BUD_REC).float()
         x5 = (W_q @ x23 > th5 * bud5).float()
         m = (W_l5m1 @ x5 > THM * bud_m1).float()
+    held_states.append(x23.clone())
     alive += int(float(x23.mean()) > 0.01)
+# An independent audit showed that this "hold" cannot fail: the bias alone (0.5) already
+# exceeds the free-running threshold (~0.36), so with the input removed every cell turns
+# on and the state is the whole layer.  Report that instead of hiding it: the held state
+# size, and how much of the item's own presentation state survives in it.
+held_sizes = [int(h.sum()) for h in held_states]
+held_self = [ov(held_states[k].cpu().numpy(), C[k]) for k in range(len(ITEMS))]
+held_ov = float(np.mean([ov(held_states[i].cpu().numpy(), held_states[j].cpu().numpy())
+                         for i in range(len(ITEMS)) for j in range(i + 1, len(ITEMS))]))
+print('  HOLD DIAGNOSTIC: held sizes %s of %d | self-overlap %.2f | held-vs-held %.2f' % (
+    held_sizes, N23, float(np.mean(held_self)), held_ov), flush=True)
+print('  (%s)' % (
+    'the held state is the WHOLE layer -- this is not working memory, see README section 4'
+    if min(held_sizes) > 0.9 * N23 else 'held states are sparse'), flush=True)
 
 
 def which(x23):
@@ -225,9 +239,13 @@ for _ in range(6):
 print('  MOTOR %s | DIST %.2f | HOLD %d/6' % (
     ' '.join('%.2f' % f for f in fid), dist, alive), flush=True)
 print('  CHAIN %s' % ' '.join(ITEMS[i][:3] if i >= 0 else '---' for i in path), flush=True)
-ok = (min(fid) > 0.5) and (dist < 0.5) and (alive == 6) and (path[1] == 1) and (path[2] == 2)
-print('  %s' % ('ALL CRITERIA PASS' if ok else 'fail'), flush=True)
-
+# The working-memory criterion now requires the held state to be SPARSE and ITEM-SPECIFIC.
+# It used to count "mean > 0.01", which the all-on state satisfies trivially; an audit
+# caught that this made the criterion impossible to fail.
+hold_real = (max(held_sizes) < 0.9 * N23) and (held_ov < 0.5) and (float(np.mean(held_self)) > 0.3)
+ok = (min(fid) > 0.5) and (dist < 0.5) and (alive == 6) and hold_real and (path[1] == 1) and (path[2] == 2)
+print('  hold is real (sparse, item-specific): %s' % ('yes' if hold_real else 'NO -- the held state is the whole layer'), flush=True)
+print('  %s' % ('ALL CRITERIA PASS' if ok else 'FAIL (see the line above)'), flush=True)
 
 
 
