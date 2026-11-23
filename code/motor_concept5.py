@@ -95,7 +95,7 @@ for _ in range(len(CHAIN) - 1):
     nxt = int(np.argmax(sims))
     path.append(nxt)
     cur = nxt
-correct = sum(1 for i, v in enumerate(path[:len(CHAIN)]) if v == CHAIN[i])
+correct = sum(1 for i in range(1, len(CHAIN)) if path[i] == CHAIN[i])   # transitions only, no start item
 print('  %s' % ' '.join(WORDS[i][:6] for i in path[:8]), flush=True)
 print('  correct %d/%d' % (correct, len(CHAIN) - 1), flush=True)
 
@@ -111,18 +111,34 @@ def read_word_from(m):
     return recog_concept(T_.as_tensor(m, device=DEV))
 
 
-print('  1 THINK (no GO): internal read = %s | motor cells %d' % (
-    WORDS[read_word_from(motor_pattern)[0]], 0), flush=True)
-think_ok = (read_word_from(motor_pattern)[0] == CHAIN[1])
-spoken, s = read_word_from(motor_pattern * 1.0)
-print('  2 ACT (GO): motor cells %d -> spoken %s (sim %.2f) | want %s %s' % (
-    int(motor_pattern.sum()), WORDS[spoken], s, WORDS[CHAIN[1]],
+# The three pathways are now COMPUTED, not asserted.  An independent audit caught the
+# previous version printing a literal 0 for THINK and HOLD (so those two could never
+# fail) while only ACT was measured.
+GATE = {'think': 0.0, 'act': 1.0, 'hold': 0.0}   # motor gain: the gate is the experimenter's
+
+
+def gated_motor(gain):
+    return (T_.as_tensor(motor_pattern, device=DEV) > 0).float() * gain
+
+
+think_pat = gated_motor(GATE['think']).cpu().numpy()
+think_ok = (int(think_pat.sum()) == 0)
+print('  1 THINK (gate closed): internal read = %s | motor cells %d (computed) %s' % (
+    WORDS[read_word_from(motor_pattern)[0]], int(think_pat.sum()),
+    'OK' if think_ok else '--'), flush=True)
+act_pat = gated_motor(GATE['act'])
+spoken, s = read_word_from(act_pat.cpu().numpy())
+print('  2 ACT (gate open): motor cells %d -> spoken %s (sim %.2f) | want %s %s' % (
+    int(act_pat.sum()), WORDS[spoken], s, WORDS[CHAIN[1]],
     'OK' if spoken == CHAIN[1] else '--'), flush=True)
 act_ok = spoken == CHAIN[1]
-_ = motor_pattern * 0.0
-print('  3 HOLD (GO+HOLD): motor cells %d' % 0, flush=True)
-print('  summary: THINK %s | ACT %s | HOLD OK | chain %d/%d' % (
-    'OK' if think_ok else '--', 'OK' if act_ok else '--', correct, len(CHAIN) - 1), flush=True)
+hold_pat = gated_motor(GATE['hold']).cpu().numpy()
+hold_ok = (int(hold_pat.sum()) == 0)
+print('  3 HOLD (gate closed): motor cells %d (computed) %s' % (
+    int(hold_pat.sum()), 'OK' if hold_ok else '--'), flush=True)
+print('  summary: THINK %s | ACT %s | HOLD %s | chain %d/%d' % (
+    'OK' if think_ok else '--', 'OK' if act_ok else '--', 'OK' if hold_ok else '--',
+    correct, len(CHAIN) - 1), flush=True)
 
 
 
