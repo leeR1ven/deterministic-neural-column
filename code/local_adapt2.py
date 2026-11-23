@@ -60,7 +60,7 @@ W_p *= WL / W_p.sum(1, keepdim=True).clamp(min=1e-9)
 W_q *= WL / W_q.sum(1, keepdim=True).clamp(min=1e-9)
 
 W_l5m1 = T.zeros(NM, N5, device=DEV)          # built entirely by learning
-bias = T.zeros(N23, device=DEV) + 0.5
+bias = T.zeros(N23, device=DEV) + 0.05
 bud23 = W_in.abs().sum(1) + W_p.abs().sum(1) + bias.abs()
 bud5 = W_q.abs().sum(1).clamp(min=1e-9)
 bud_m1 = T.full((NM,), M1BUD, device=DEV)
@@ -68,26 +68,40 @@ bud_m1 = T.full((NM,), M1BUD, device=DEV)
 
 BUD_REC = (W_p.abs().sum(1) + bias.abs())      # budget when there is no input
 
-def settle(th23, th5, s_in, steps=14):
+TAU = 400.0        # slow-variable time constant, in simulation steps
+KAPPA = 1.5        # how strongly a cell's own past raises its excitability
+
+
+def settle(th23, th5, s_in, steps=14, mt=None, mref=None):
+    """One presentation or hold phase.
+
+    The per-cell slow variable mt integrates the cell's own relative drive; at the end
+    of the input phase mref records its value, and afterwards a cell fires more easily
+    the closer its trace is to that remembered level.  This is what makes the state
+    survive the removal of the input: without it the unit is memoryless, and an earlier
+    version held by having the tonic bias exceed the threshold, which left every cell
+    on (1024/1024) -- not memory.
+    """
     x23 = T.zeros(N23, device=DEV); x5 = T.zeros(N5, device=DEV); m = T.zeros(NM, device=DEV)
+    mt = T.zeros(N23, device=DEV) if mt is None else mt
     for _ in range(steps):
-        # the threshold must be relative to the inputs that are ACTUALLY present:
-        # calibrated to include the sensory budget, a state can never be held by
-        # recurrence alone (0.55 of drive against a 0.76 threshold).
         bud = bud23 if s_in is not None else BUD_REC
         drive = W_p @ x5 + bias + (W_in @ s_in if s_in is not None else 0)
-        n23 = (drive > th23 * bud).float()
-        # divisive normalisation of the DRIVE into L5 (not of the pattern): equal
-        # total current whatever the incoming density, while the relative pattern
-        # -- which is what carries the content -- is preserved.
+        rel = drive / bud
+        if mref is None:
+            n23 = (rel > th23).float()
+        else:
+            mn = mt / mref.clamp(min=1e-6)
+            n23 = (rel + KAPPA * mn * th23 > th23).float()
+        mt = mt + (rel - mt) / TAU
         d5 = W_q @ n23
         tot = d5.sum()
         if float(tot) > 0:
-            d5 = d5 / tot * (N5 * 0.15)      # nothing to normalise when the input is gone
+            d5 = d5 / tot * (N5 * 0.15)
         n5 = (d5 > th5 * bud5).float()
         nm = (W_l5m1 @ n5 > THM * bud_m1).float()
         x23, x5, m = n23, n5, nm
-    return x23, x5, m
+    return x23, x5, m, mt
 
 
 def settle_item(s_in, steps=14):
@@ -98,7 +112,7 @@ def settle_item(s_in, steps=14):
     best = None
     for _ in range(18):
         mid = 0.5 * (lo + hi)
-        out = settle(mid, th5, s_in, steps)
+        out = settle(mid, th5, s_in, steps)[:3]
         n = float(out[0].sum())
         best = out
         if n > 400:
@@ -113,7 +127,7 @@ th23 = th5 = 0.5
 for it in range(300):
     d23 = d5 = 0.0
     for k in range(len(ITEMS)):
-        x23, x5, _ = settle(th23, th5, S[k])
+        x23, x5, _, _ = settle(th23, th5, S[k])
         d23 += float(x23.mean()); d5 += float(x5.mean())
     d23 /= len(ITEMS); d5 /= len(ITEMS)
     if d23 > HI: th23 = min(th23 + STEP, 0.95)
@@ -155,7 +169,7 @@ def settle_item(s_in, steps=14):
     best = None
     for _ in range(18):
         mid = 0.5 * (lo + hi)
-        out = settle(mid, th5, s_in, steps)
+        out = settle(mid, th5, s_in, steps)[:3]
         n = float(out[0].sum())
         best = out
         if n > 400:
