@@ -17,11 +17,18 @@ import tempfile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
-SCRIPT = os.path.join(BASE, 'scale_more.py')
-OUT = os.path.join(BASE, 'sweep_scale.csv')
+# scale_more.py is NOT in this repository; use the parametrised successor scale_more8.py.
+# The script used to launch the missing file, so it silently produced a CSV of zeros.
+SCRIPT = os.path.join(BASE, 'scale_more8.py')
+# write next to the caller, not into the repository
+OUT = os.path.join(os.getcwd(), 'sweep_scale.csv')
 
 CONFIGS = [(12, 8), (24, 12), (36, 16), (40, 20)]
 SEEDS = [0, 1, 2, 3]
+
+
+if not os.path.exists(SCRIPT):
+    sys.exit('missing runner: %s -- this study cannot be reproduced from this repository' % SCRIPT)
 
 
 def run_one(n_items, clen, seed):

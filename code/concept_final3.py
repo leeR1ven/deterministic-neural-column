@@ -1,4 +1,4 @@
-﻿"""Wire the LEARNED concept layer into the PFC loop.
+"""Wire the LEARNED concept layer into the PFC loop.
 
 The concept representation is no longer a mask I computed.  It is layer 2, learned by the
 local rule in concept_emerge.py; a concept's input to the PFC is simply how layer 2
@@ -194,7 +194,7 @@ for step in range(len(CHAIN) - 1):
     want = CHAIN[step + 1]
     ok += int(heard == want)
     cur = heard
-print('chain over learned concepts: %d/%d utterances understood (TH5 %.2f)' % (
+print('chain over learned concepts: %d/%d utterances understood (chain uses TH5 0.17, not the %.2f above)' % (
     ok, len(CHAIN) - 1, TH5), flush=True)
 
 # ================= several concepts at once -> predict the next concept ============

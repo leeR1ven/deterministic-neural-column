@@ -1,4 +1,4 @@
-﻿"""The complete loop: input -> concept code -> working memory -> context prediction
+"""The complete loop: input -> concept code -> working memory -> context prediction
 -> the three output pathways (think / hold / act).
 
 Everything below is cells, synapses, thresholds and local rules.  What is new here is
@@ -95,9 +95,11 @@ for _ in range(len(CHAIN) - 1):
     nxt, s = read_word(x5)
     path.append(nxt)
     cur = nxt
-correct = sum(1 for i, v in enumerate(path[:len(CHAIN)]) if v == CHAIN[i])
+# count TRANSITIONS only: the path includes the starting item, so scoring
+# path[:len(CHAIN)] could report 8/7 (more than 100%), which is meaningless
+correct = sum(1 for i in range(1, len(CHAIN)) if path[i] == CHAIN[i])
 print('  %s' % ' '.join(WORDS[i][:6] for i in path), flush=True)
-print('  correct %d/%d' % (correct, len(CHAIN) - 1), flush=True)
+print('  correct %d/%d transitions' % (correct, len(CHAIN) - 1), flush=True)
 
 print('\nsummary: THINK %s | ACT %s | HOLD %s | chain %d/%d' % (
     'OK' if think_ok else '--', 'OK' if act_ok else '--', 'OK' if hold_ok else '--',
