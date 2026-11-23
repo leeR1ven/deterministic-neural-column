@@ -1,4 +1,4 @@
-﻿"""Two-word context by factoring, not by growing: the older word and the current word
+"""Two-word context by factoring, not by growing: the older word and the current word
 are projected into DIFFERENT halves of L2/3.
 
 Why: last round failed because both context words were summed into the same 4096 cells,

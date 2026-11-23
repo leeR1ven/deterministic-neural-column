@@ -1,4 +1,4 @@
-﻿"""Final configuration: closed-loop density control for L2/3 and L5, fixed motor
+"""Final configuration: closed-loop density control for L2/3 and L5, fixed motor
 threshold, separate motor block per transition.
 
 Why this combination:

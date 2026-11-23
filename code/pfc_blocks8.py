@@ -1,4 +1,4 @@
-﻿"""Three PFC pathways with one motor block per speakable item.
+"""Three PFC pathways with one motor block per speakable item.
 
 Why blocks: the previous version shared one 280-cell motor map for all items, and
 because the L5 states overlap, the learned map interfered -- suppression of the

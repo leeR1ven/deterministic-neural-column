@@ -1,4 +1,4 @@
-﻿"""The motor side done the way the designer described (and Churchland & Shenoy 2024):
+"""The motor side done the way the designer described (and Churchland & Shenoy 2024):
 
     the PFC sends only a ROUGH signal -> the motor area turns it into a CONTINUOUS
     trajectory -> the basal ganglia can silence single motor neurons or all of them

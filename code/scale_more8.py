@@ -1,4 +1,4 @@
-﻿"""Verbose walk: print every stage of one step so the empty link is visible.
+"""Verbose walk: print every stage of one step so the empty link is visible.
 
 Stages printed per step:
   held   : how many L2/3 cells remain after the cue

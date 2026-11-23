@@ -1,4 +1,4 @@
-﻿"""Concept-level loop + a movement language made of muscle combinations.
+"""Concept-level loop + a movement language made of muscle combinations.
 
 Two changes from the word-level model:
 

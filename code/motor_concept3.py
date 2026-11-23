@@ -1,4 +1,4 @@
-﻿"""The muscle pattern should reproduce the CONCEPT code, not the raw 280-channel code.
+"""The muscle pattern should reproduce the CONCEPT code, not the raw 280-channel code.
 
 Diagnosed last round: with the 280-channel input code as the output target, the drive
 mass on the target is smaller than off it at 36 words (0.274 vs 0.449) because

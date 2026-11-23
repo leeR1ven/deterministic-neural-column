@@ -1,4 +1,4 @@
-﻿"""Concepts, take two: learn them on the INPUT projection, and judge strictly.
+"""Concepts, take two: learn them on the INPUT projection, and judge strictly.
 
 Last round failed and the criterion was too loose in two ways:
   * it accepted cells that fired for two categories (chance co-activation)

@@ -1,4 +1,4 @@
-﻿"""Two stages, cleanly separated.
+"""Two stages, cleanly separated.
 
 The previous attempt bolted the redundancy-reduction rule onto the RECURRENT loop and
 the operating point drifted (some items died: L23 = 0).  Here the two jobs are split:

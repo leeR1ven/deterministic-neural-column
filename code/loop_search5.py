@@ -1,4 +1,4 @@
-﻿"""Automated search over the PFC small-loop parameters.
+"""Automated search over the PFC small-loop parameters.
 
 The loop is the important part, so this searches only its parameters:
 

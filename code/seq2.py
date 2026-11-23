@@ -1,4 +1,4 @@
-﻿"""All three dimensions at once: 160 words, a two-word context, a 60-step chain.
+"""All three dimensions at once: 160 words, a two-word context, a 60-step chain.
 
 Previous rounds scaled one dimension at a time.  Here the next word depends on the last
 TWO words, so the held state must keep both, and the chain is 60 steps long.
