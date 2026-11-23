@@ -68,32 +68,21 @@ bud_m1 = T.full((NM,), M1BUD, device=DEV)
 
 BUD_REC = (W_p.abs().sum(1) + bias.abs())      # budget when there is no input
 
-TAU = 400.0        # slow-variable time constant, in simulation steps
-KAPPA = 1.5        # how strongly a cell's own past raises its excitability
+def settle(th23, th5, s_in, steps=14):
+    """One presentation or hold phase.  NO slow variable is used here.
 
-
-def settle(th23, th5, s_in, steps=14, mt=None, mref=None):
-    """One presentation or hold phase.
-
-    The per-cell slow variable mt integrates the cell's own relative drive; at the end
-    of the input phase mref records its value, and afterwards a cell fires more easily
-    the closer its trace is to that remembered level.  This is what makes the state
-    survive the removal of the input: without it the unit is memoryless, and an earlier
-    version held by having the tonic bias exceed the threshold, which left every cell
-    on (1024/1024) -- not memory.
+    A trace was tried (per-cell mt, normalised by its own value at the end of the input)
+    and it does not work: because the normalisation is per cell, mt/mref is about 1 for
+    every cell, so 
+el + KAPPA * (mt/mref) * th > th holds everywhere and the layer
+    saturates to 1024/1024 again.  The trace code is intentionally absent rather than
+    left in as dead weight.
     """
     x23 = T.zeros(N23, device=DEV); x5 = T.zeros(N5, device=DEV); m = T.zeros(NM, device=DEV)
-    mt = T.zeros(N23, device=DEV) if mt is None else mt
     for _ in range(steps):
         bud = bud23 if s_in is not None else BUD_REC
         drive = W_p @ x5 + bias + (W_in @ s_in if s_in is not None else 0)
-        rel = drive / bud
-        if mref is None:
-            n23 = (rel > th23).float()
-        else:
-            mn = mt / mref.clamp(min=1e-6)
-            n23 = (rel + KAPPA * mn * th23 > th23).float()
-        mt = mt + (rel - mt) / TAU
+        n23 = (drive > th23 * bud).float()
         d5 = W_q @ n23
         tot = d5.sum()
         if float(tot) > 0:
@@ -101,7 +90,7 @@ def settle(th23, th5, s_in, steps=14, mt=None, mref=None):
         n5 = (d5 > th5 * bud5).float()
         nm = (W_l5m1 @ n5 > THM * bud_m1).float()
         x23, x5, m = n23, n5, nm
-    return x23, x5, m, mt
+    return x23, x5, m
 
 
 def settle_item(s_in, steps=14):
@@ -127,7 +116,7 @@ th23 = th5 = 0.5
 for it in range(300):
     d23 = d5 = 0.0
     for k in range(len(ITEMS)):
-        x23, x5, _, _ = settle(th23, th5, S[k])
+        x23, x5, _ = settle(th23, th5, S[k])
         d23 += float(x23.mean()); d5 += float(x5.mean())
     d23 /= len(ITEMS); d5 /= len(ITEMS)
     if d23 > HI: th23 = min(th23 + STEP, 0.95)
