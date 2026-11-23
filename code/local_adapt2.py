@@ -2,18 +2,25 @@
 threshold, separate motor block per transition.
 
 Why this combination:
-  * closed-loop density control removes the seed dependence (measured: theta
-    settles at 0.38/0.30 for every seed)
+  * closed-loop density control removes most of the seed dependence (measured: theta
+    settles around 0.23-0.26 for every seed at the current bias of 0.05)
   * the motor threshold must NOT be under that control: before training its
     weights are zero, so the controller drives theta to the floor and the two
     blocks then fire identically (measured: beta->gamma fidelity 0.00)
   * one motor block per transition removes the interference that made two
     transitions collapse to a chance-level 0.58 overlap
+
+Known weakness of the working-memory test here: the presentation state is already a
+fixed point, so "the state persists after the input is removed" holds trivially.  An
+audit showed the pass criterion still passes if the hold loop is deleted entirely.
+What the hold test therefore demonstrates is persistent activity, not maintenance
+against interference; see README section 3.7.
 """
+import os
 import sys
 import numpy as np
 import torch as T
-sys.path.insert(0, r'D:\deepseekherness\gpu')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sensory import Local3DStack
 import text_encoder as te
 
@@ -196,10 +203,10 @@ for k in range(len(ITEMS)):
         m = (W_l5m1 @ x5 > THM * bud_m1).float()
     held_states.append(x23.clone())
     alive += int(float(x23.mean()) > 0.01)
-# An independent audit showed that this "hold" cannot fail: the bias alone (0.5) already
-# exceeds the free-running threshold (~0.36), so with the input removed every cell turns
-# on and the state is the whole layer.  Report that instead of hiding it: the held state
-# size, and how much of the item's own presentation state survives in it.
+# An independent audit showed that this hold could not fail: with bias = 0.5 the bias
+# alone exceeded the free-running threshold, so with the input removed every cell stayed on
+# and the held state was the whole layer.  The bias is now 0.05, and the sizes below are
+# reported so the reader can see what actually persists.
 held_sizes = [int(h.sum()) for h in held_states]
 held_self = [ov(held_states[k].cpu().numpy(), C[k]) for k in range(len(ITEMS))]
 held_ov = float(np.mean([ov(held_states[i].cpu().numpy(), held_states[j].cpu().numpy())
@@ -207,7 +214,7 @@ held_ov = float(np.mean([ov(held_states[i].cpu().numpy(), held_states[j].cpu().n
 print('  HOLD DIAGNOSTIC: held sizes %s of %d | self-overlap %.2f | held-vs-held %.2f' % (
     held_sizes, N23, float(np.mean(held_self)), held_ov), flush=True)
 print('  (%s)' % (
-    'the held state is the WHOLE layer -- this is not working memory, see README section 4'
+    'the held state is the WHOLE layer -- this is not working memory, see README section 3'
     if min(held_sizes) > 0.9 * N23 else 'held states are sparse'), flush=True)
 
 
