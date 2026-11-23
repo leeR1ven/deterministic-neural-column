@@ -249,8 +249,8 @@ if _best is None:
     _best = (0.24, float('nan'), [])
     print('  homeostasis: no threshold reached overlap < 0.2, falling back to 0.24', flush=True)
 TH5 = _best[0]
-print('  homeostasis chose TH5 = %.2f (max phrase overlap %.2f, state sizes %s)' % (
-    _best[0], _best[1], [int(v) for v in _best[2]]), flush=True)
+print('  TH5 used = %.2f (%s; max phrase overlap %.2f, state sizes %s)' % (
+    _best[0], 'self-organised' if _best[1] == _best[1] else 'FALLBACK constant, homeostasis failed', _best[1], [int(v) for v in _best[2]]), flush=True)
 # two maps: one for the sequence (trained above), one for the multi-concept context.
 # They are separate because the same output rows trained by both tasks blend together
 # and then fire for neither; biologically the sequence and the context are also handled

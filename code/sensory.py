@@ -1,4 +1,4 @@
-"""Sensory stack, exactly as the reference implementation does it later on.
+﻿"""Sensory stack. The sparsification rule follows local3d-similarity: a local 3-D
 
 From local3d-similarity (THRESHOLD_ACTIVATION.md, threednet/model.py):
 

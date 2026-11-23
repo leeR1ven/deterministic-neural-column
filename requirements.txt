@@ -1,4 +1,9 @@
-# The scripts were developed and run with these versions (Windows, CUDA 11.8 build).
-# CPU-only machines are UNTESTED: the scripts set DEV = 'cuda' explicitly.
+# Developed and run with: Python 3.13.7, torch 2.7.1+cu118, numpy (CUDA 11.8 build).
+# Exact patch versions are not pinned because they were not recorded at the time.
 torch>=2.0
 numpy>=1.24
+
+# NOTE ON DEVICE: most scripts hard-code DEV = 'cuda' (local_adapt2.py, walk_rel2.py,
+# pfc_blocks8.py, scale_more8.py, two_stage6.py) and will not run on a CPU-only machine.
+# A few newer ones (e.g. concept_final3.py) fall back to CPU automatically.
+# There is no CPU test suite; CPU numbers are not verified.
