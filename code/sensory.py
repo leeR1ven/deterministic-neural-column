@@ -1,4 +1,4 @@
-﻿"""Sensory stack, exactly as the reference implementation does it later on.
+"""Sensory stack, exactly as the reference implementation does it later on.
 
 From local3d-similarity (THRESHOLD_ACTIVATION.md, threednet/model.py):
 
@@ -77,17 +77,24 @@ class Local3DStack:
         return out
 
     def calibrate(self, code, target=0.12, lo=0.0, hi=2.0, iters=25):
-        """pick one theta per layer so that the mean activation is ~target"""
+        """pick one theta per layer so that the mean activation is ~target.
+
+        The bracket is reset for every layer.  The earlier version reused the previous
+        layer's converged bracket, so layers 2 and 3 started from a bracket that no
+        longer contained their own solution and came out under-calibrated (about 10%
+        instead of the requested 12%).
+        """
         for l in range(len(self.layers)):
+            lo_l, hi_l = lo, hi
             for _ in range(iters):
-                mid = (lo + hi) / 2
+                mid = (lo_l + hi_l) / 2
                 self.theta[l] = mid
                 hs = self.forward(code)
                 act = float(hs[l + 1].mean())
                 if act > target:      # too many active -> theta must rise
-                    lo = mid
+                    lo_l = mid
                 else:                 # too few active -> theta must fall
-                    hi = mid
-            self.theta[l] = (lo + hi) / 2
+                    hi_l = mid
+            self.theta[l] = (lo_l + hi_l) / 2
         return self.theta
 

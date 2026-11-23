@@ -129,18 +129,31 @@ for _ in range(20):
     chance.append(h)
 print('  shuffled-label chance: %.1f' % float(np.mean(chance)), flush=True)
 
-# category information in the layer-2 population
-protos = []
-for c in range(NCAT):
-    v = np.mean([A[k] for k in range(N) if CAT[k] == c], axis=0)
-    protos.append(v / max(float(np.linalg.norm(v)), 1e-9))
+# category information in the layer-2 population -- LEAVE-ONE-OUT: the prototype for a
+# word's category must not contain that word, otherwise the test is circular (the
+# reviewer of this repository caught the earlier version doing exactly that)
 ok = 0
 for k in range(N):
     v = A[k] / max(float(np.linalg.norm(A[k])), 1e-9)
-    ok += int(int(np.argmax([float(v @ p) for p in protos])) == CAT[k])
-print('  category decoding from layer 2: %d/%d' % (ok, N), flush=True)
-word_ok = sum(1 for k in range(N)
-              if int(np.argmax([float(A[k] / max(np.linalg.norm(A[k]), 1e-9)
-                                     @ (A[j] / max(np.linalg.norm(A[j]), 1e-9)))
-                                for j in range(N)])) == k)
-print('  word decoding from layer 2: %d/%d' % (word_ok, N), flush=True)
+    sims = []
+    for c in range(NCAT):
+        members = [A[j] for j in range(N) if CAT[j] == c and j != k]
+        p = np.mean(members, axis=0)
+        sims.append(float(v @ (p / max(float(np.linalg.norm(p)), 1e-9))))
+    ok += int(int(np.argmax(sims)) == CAT[k])
+print('  category decoding from layer 2 (leave-one-out): %d/%d' % (ok, N), flush=True)
+
+# word decoding: nearest other word, with the diagonal excluded (a self-match would
+# always win, which is what made the earlier 40/40 meaningless)
+word_ok = 0
+for k in range(N):
+    v = A[k] / max(float(np.linalg.norm(A[k])), 1e-9)
+    best, bj = -1.0, -1
+    for j in range(N):
+        if j == k:
+            continue
+        s = float(v @ (A[j] / max(float(np.linalg.norm(A[j])), 1e-9)))
+        if s > best:
+            best, bj = s, j
+    word_ok += int(bj == k)
+print('  word decoding from layer 2 (self excluded): %d/%d' % (word_ok, N), flush=True)

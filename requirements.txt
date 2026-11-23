@@ -1,0 +1,4 @@
+# The scripts were developed and run with these versions (Windows, CUDA 11.8 build).
+# CPU-only machines are UNTESTED: the scripts set DEV = 'cuda' explicitly.
+torch>=2.0
+numpy>=1.24
