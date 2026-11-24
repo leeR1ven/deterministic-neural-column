@@ -458,9 +458,22 @@ if  X  then  Y  .  X  therefore  Y
 回合：外界说完最后一个词后**停一下**（静音帧），然后基底节关掉，模型自己的输出接回输入端往下走；
 走到静音就停（话说完了），回合交回外界。整条链上没有 if、没有状态机，抑制就是一条权重。
 
+### 听说的词要用两套码（设计者的纠正，做了之后才对）
+
+设计者指出：模型**说**出来的词和**听到**的词不是一回事，不该用同一个码。之前两者都用视觉图，
+于是"听到 bye、然后说 bye"就是连续两个一样的状态——那正是最难的情形，所以 `bye !` 失败、两轮也失败。
+
+改成每个词两套码：
+
+- **听到**：它的图在视觉层上的模式；
+- **说出**：它在记忆空间里自己的一块细胞（每词 20 个），由运动区回送。
+
+其余不变：key 仍是 [当前码 ; 上下文]，余弦驱动，阈值 0.7，突触按突触后误差调整；运动区仍是那 20 个
+细胞，每个读本词块的一个细胞（权重 4）+ 基底节抑制（权重 −3）。
+
 ### 结果
 
-**8 个问答里 7 个一字不差**：听的时候运动区全静，答案完整说出，最后自己停在静音上。
+**8/8 一字不差**，包括 `bye ! -> bye ! see you later !`：
 
 ```
 Q: how many hours in a day ?   -> there are twenty-four hours in a day .   ok
@@ -470,15 +483,24 @@ Q: where do you learn ?        -> you learn at school .                   ok
 Q: say hello .                 -> hello ! how are you ?                    ok
 Q: what do cows eat ?          -> cows eat grass and hay .                 ok
 Q: my name is alice .          -> nice to meet you , alice !              ok
-Q: bye !                       -> (静音)                                  失败
+Q: bye !                       -> bye ! see you later !                    ok
 ```
 
-### 失败的地方（诚实）
+**两轮对话也对了**（同一段对话里连续两组问答，中途不说错、不抢话）：
 
-1. `bye !` 的答案是 `bye ! see you later !`——**答案开头要重复对方刚说的词**。模型直接静音。
-   这是重复词的老问题，虽然中间已经隔了一个停顿帧。
-2. **两轮对话不行**：第一轮答案完全正确、并且正确地停在静音上；但**第二轮答不出来**（静音）。
-   34 帧的序列现在学不好，残差 0.29。
+```
+outside: how many hours in a day ?
+outside: is a car a vehicle ?
+model  : there are twenty-four hours in a day . yes , a car is a vehicle .
+want   : there are twenty-four hours in a day . yes , a car is a vehicle .
+听的时候运动区全静；说完第一段自己停，等第二问
+```
 
-**结论：单轮问答 + "该谁说"已经能跑（7/8，听的时候不吭声、说完自己停）；多轮还不行，
-"答案重复对方最后一词"也不行。代码：`code/dialogue_turns.py`。**
+### 还剩下的（诚实）
+
+- 只测了这 8 组短问答，而且**一次只教一段对话**；**换一个没教过的问法答不出来**。
+- "说出"的那块细胞是**每个词手工划出来的**（和运动区"一个动作一个区域"是同一个做法），不是学出来的。
+- 两轮对话要把学习量加到 1500 轮才稳（残差 0.15）。
+
+**结论：单轮 8/8、两轮也对，听的时候不抢话、说完自己停；但"听懂没教过的问法"还不行。
+代码：`code/dialogue_motor.py`（新的两套码版本），`dialogue_turns.py`（旧版，作为对照保留）。**
