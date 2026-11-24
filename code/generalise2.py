@@ -1,4 +1,4 @@
-"""How far does making each layer wider actually go?  Two layers always, only the width changes.
+﻿"""How far does making each layer wider actually go?  Two layers always, only the width changes.
 
 The dense connection set is not stored: the ridge solution that the delta rule converges to can be written
 W = V^T (K K^T + lam)^-1 K, so a prediction is V^T (Ck k).  That is the same number the dense W would give,
@@ -143,8 +143,8 @@ def run(S, seed):
 
 print('', flush=True)
 print(' width   cells   seed   trained   unseen   mean training error', flush=True)
-for S in (28, 32, 40, 48, 64):
-    for seed in (0, 1):
+for S in (96,):
+    for seed in (0,):
         cells, tr, te, err = run(S, seed)
         print('  %2dx%-3d %5d   %2d     %2d/40     %2d/40     %.4f'
               % (S, S, cells, seed, tr, te, err), flush=True)
