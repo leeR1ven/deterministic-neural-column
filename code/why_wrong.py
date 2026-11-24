@@ -25,11 +25,12 @@ sys.path.insert(0, BASE)
 from sensory import Local3DStack
 
 DEV = 'cuda' if T.cuda.is_available() else 'cpu'
-S, MZ = 28, 16
+S, MZ = 28, int(os.environ.get('MZ', '16'))
 DATA = r'D:\deepseekherness\data'
 EPOCHS = int(sys.argv[1]) if len(sys.argv) > 1 else 4
 NVOC = int(sys.argv[2]) if len(sys.argv) > 2 else 300
-TH, ALPHA, ETA, WPR, FAN_M = 0.6, float(os.environ.get('ALPHA', '0.7')), 0.05, 6, 8
+TH, ALPHA, ETA, WPR, FAN_M = float(os.environ.get('TH', '0.6')), float(os.environ.get('ALPHA', '0.7')), 0.05, 6, 8
+FANIN = int(os.environ.get('FANIN', '4'))
 
 raw = open(os.path.join(DATA, 'dialogue', 'tinytalks_v1.txt'), encoding='utf-8', errors='replace').read()
 pairs, q = [], None
@@ -86,9 +87,9 @@ def glyph(i):
 
 
 GL = np.stack([glyph(i) for i in range(V)]).astype(np.float32)
-sens = Local3DStack([(S, S, 1), (S, S, MZ)], fan_in=4, bias_scale=1.0, seed=1, dev=DEV)
+sens = Local3DStack([(S, S, 1), (S, S, MZ)], fan_in=FANIN, bias_scale=1.0, seed=1, dev=DEV)
 sens.theta = [TH]
-pfc = Local3DStack([(S, S, MZ), (S, S, MZ)], fan_in=4, bias_scale=1.0, seed=2, dev=DEV)
+pfc = Local3DStack([(S, S, MZ), (S, S, MZ)], fan_in=FANIN, bias_scale=1.0, seed=2, dev=DEV)
 pfc.theta = [TH]
 with T.no_grad():
     SPAT = sens.forward(T.as_tensor(GL, device=DEV))[-1]
@@ -105,7 +106,7 @@ def run_pfc(tokens, state):
     outs = []
     with T.no_grad():
         for t in tokens:
-            state = pfc.forward(T.clamp(SPAT[t] + ALPHA * state, 0, 1).unsqueeze(0))[-1][0]
+            state = pfc.forward((SPAT[t] + ALPHA * state).unsqueeze(0))[-1][0]
             outs.append(state)
     return outs
 
@@ -137,6 +138,11 @@ def collapse(exc):
             acc += T.roll(T.roll(m, dy, 0), dx, 1)
     return (acc / 9.0).reshape(-1)
 
+
+print('PFC theta %.2f | fan-in %d | volume depth %d' % (TH, FANIN, MZ), flush=True)
+_st0 = run_pfc(encode(held[0][0]), zero)
+print('PFC activation: %.1f%% of %d cells (first question)' % (
+    100 * float(_st0[-1].mean()), _st0[-1].numel()), flush=True)
 
 ranks, ranks_col, states, ans = [], [], [], []
 for qq, aa in held:
@@ -171,6 +177,15 @@ for i in range(len(held)):
     for j in range(i + 1, len(held)):
         (same if ans[i] == ans[j] else diff).append(sim[i, j])
 print('', flush=True)
-print('PFC STATE: similarity for questions sharing an answer %.3f | for different answers %.3f' % (
+print('PFC STATE: cosine similarity, same answer %.3f | different answer %.3f' % (
     float(np.mean(same)) if same else -1, float(np.mean(diff))), flush=True)
+ov = []
+for i in range(len(states)):
+    for j in range(i + 1, len(states)):
+        a, b = states[i], states[j]
+        inter = float(((a > 0) & (b > 0)).sum())
+        union = float(((a > 0) | (b > 0)).sum())
+        if union:
+            ov.append(inter / union)
+print('PFC STATE: Jaccard overlap between two different questions %.3f' % float(np.mean(ov)), flush=True)
 print('  (if the two are equal, the state does not carry the answer at all)', flush=True)
