@@ -129,12 +129,13 @@ def batch(ss):
     return T.stack(ks), T.stack(vs)
 
 
-def train(ss):
-    """the same rule, solved instead of iterated: the fixed point of the delta rule is the least-squares fit"""
+def train(ss, lam=1e-3):
+    """the same rule, solved instead of iterated: the fixed point of the delta rule is the least-squares fit.
+    lam is the weight decay relative to the number of transitions."""
     K, V = batch(ss)
     A = K.T @ K
     B = V.T @ K
-    lam = 1e-3 * K.shape[0]
+    lam = lam * K.shape[0]
     A = A + lam * T.eye(A.shape[0], device=DEV)
     return T.linalg.solve(A, B.T).T
 
@@ -181,36 +182,25 @@ for k in (200,):
     print('   %3d     | %-26s | %s' % (k, row[0], row[1]), flush=True)
 
 print('', flush=True)
-print('does it remember the dialogues it was trained on? (200 pairs, one matrix)', flush=True)
+print('weight decay (ridge) sweep, 200 pairs, one connection set:', flush=True)
 ss = seqs(pool[:200], False)
-W = train(ss)
-K, V = batch(ss)
-res = float((V - K @ W.T).abs().max())
-tr = 0
-for q, a in pool[:40]:
-    got, _ = answer(W, q)
-    tr += (got == a)
-te = 0
-for q, a in test:
-    got, _ = answer(W, q)
-    te += (got == a)
-print('  training fit: worst error on a trained transition %.3f' % res, flush=True)
-with T.no_grad():
-    Kn = K / K.norm(dim=1, keepdim=True).clamp(min=1e-9)
-    Sm = Kn @ Kn.T
-    same = (Sm > 0.995).fill_diagonal_(False)
-    diff = (V @ V.T) < 0.5                      # targets different
-    clash = int((same & diff).sum()) // 2
-    print('  transitions whose state is the same but whose next word differs: %d pairs' % clash, flush=True)
-    print('  mean training error %.3f' % float((V - K @ W.T).abs().mean()), flush=True)
-print('  answers exactly right on 40 trained questions : %d/40' % tr, flush=True)
-print('  answers exactly right on 40 held-out questions: %d/40' % te, flush=True)
-print('', flush=True)
-print('what it says on a trained question and on a held-out one:', flush=True)
-for label, q, a in (('trained', pool[0][0], pool[0][1]), ('held-out', test[0][0], test[0][1])):
-    for th in (0.7, 0.5):
-        got, peak = answer(W, q, th=th)
-        print('  %-8s Q: %-30s | th %.1f peak %.2f | A: %s'
-              % (label, ' '.join(vocab[w] for w in q)[:30], th, peak,
-                 ' '.join(vocab[w] for w in got)[:40] or '(silence)'), flush=True)
-    print('  %-8s    want: %s' % ('', ' '.join(vocab[w] for w in a)[:40]), flush=True)
+seq0 = seqs([pool[0]], False)[0]
+ip = len(pool[0][0])
+F = T.zeros(DT, device=DEV)
+ktr = []
+for t in range(len(seq0) - 1):
+    v = code(seq0[t][0], seq0[t][1])
+    k = T.cat([v, F])
+    ktr.append(k / k.norm().clamp(min=1e-9))
+    F = step(F, v)
+tgt = code(seq0[ip + 1][0], seq0[ip + 1][1])
+print('  decay    mean err   drive on the right next word at the pause   trained   held-out', flush=True)
+for lam in (1e-2, 1e-3, 1e-5, 1e-7):
+    W = train(ss, lam)
+    K, V = batch(ss)
+    err = float((V - K @ W.T).abs().mean())
+    dr = (W @ ktr[ip])[tgt > 0.5]
+    tr = sum(answer(W, q)[0] == a for q, a in pool[:40])
+    te = sum(answer(W, q)[0] == a for q, a in test)
+    print('  %.0e   %.4f     %.2f .. %.2f   %2d/40     %2d/40'
+          % (lam, err, float(dr.min()), float(dr.max()), tr, te), flush=True)
