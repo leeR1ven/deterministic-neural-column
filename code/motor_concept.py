@@ -1,122 +1,133 @@
-"""The muscle pattern should reproduce the CONCEPT code, not the raw 280-channel code.
+"""The full designed chain: image -> local layer -> concept cells -> motor action -> answer.
 
-Diagnosed last round: with the 280-channel input code as the output target, the drive
-mass on the target is smaller than off it at 36 words (0.274 vs 0.449) because
-15 transitions x 45 target cells = 675 > 280 available channels -- the output space is
-saturated and rows have to serve several targets.
+This is the architecture as the designer describes it, with nothing extra:
 
-The concept code (the stage-A sparse code, 1024 cells, 70 active, pairwise overlap
-0.05) has the same number of words but far less collision: 15 x 70 = 1050 <= 1024 and
-only 5 % overlap instead of 17 %.
+  layer 1   local 3D volume, fixed weights (the library's construction)
+  concept   cells that see part of layer 1, fire by the threshold rule (no top-k), synapses LEARNED
+            by Hebb from what they see (no labels)
+  motor     one action per digit; during teaching the movement fires that action's cells
+  binding   Hebbian between the concept cells active at that moment and the motor cells of the
+            performed action
+  answer    at test no movement is given: the concept activity drives the motor cells and whichever
+            action's region receives the most drive is the answer
 
-So the motor layer is widened to 1024 cells and reproduces the concept code of the next
-word.  Reading it back is the same template match the model already uses.
+Nothing stores pictures.  There is no kNN and no label layer -- the answer travels through the motor
+output, as the design says.
 
-Usage: python motor_concept.py <seed> <n_items> <chain_len>
+Usage: python motor_concept.py [train_n] [test_n] [epochs] [concept_cells]
 """
 import os
 import sys
+
 import numpy as np
 import torch as T
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-SEED = sys.argv[1] if len(sys.argv) > 1 else '0'
-NIT = sys.argv[2] if len(sys.argv) > 2 else '36'
-CLEN = sys.argv[3] if len(sys.argv) > 3 else '16'
-sys.argv = ['x', SEED, '0.17', '0.05', '0.02', NIT, CLEN]
-src = open(os.path.join(BASE, 'scale_more2.py'), encoding='utf-8-sig').read()
-cut = src.index("print('\\nverbose walk")
-ns = {'__file__': os.path.join(BASE, 'scale_more2.py')}
-exec(compile(src[:cut], 'mc', 'exec'), ns)
+sys.path.insert(0, BASE)
+from sensory import Local3DStack
 
-WORDS = ns['WORDS']; NITEMS = ns['NITEMS']; CHAIN = ns['CHAIN']
-held_state = ns['held_state']; SIN = ns['SIN']; DEV = ns['DEV']; T_ = ns['T']
-CODES = ns['CODES']                      # the stage-A concept codes (1024-dim)
-CODES_T = [T_.as_tensor(c, device=DEV, dtype=T_.float32) for c in CODES]
-TRANS = ns['TRANS']; ETA = ns['ETA']; W_q = ns['W_q']; TH5 = ns['TH5']
-bud5 = ns['bud5']; N5 = ns['N5']; NMOT = ns['N23']
-ov = ns['ov']
-MOT_BUD = 0.05 * max(1.0, len(TRANS) / 7.0)
+N_TRAIN = int(sys.argv[1]) if len(sys.argv) > 1 else 10000
+N_TEST = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
+EPOCHS = int(sys.argv[3]) if len(sys.argv) > 3 else 8
+N2 = int(sys.argv[4]) if len(sys.argv) > 4 else 2048
+DEV = 'cuda' if T.cuda.is_available() else 'cpu'
+S, NC = 28, 10
+ACT, A2 = 0.20, 0.10
+FAN2 = 128
+MOTOR = 1000
+PER = MOTOR // NC
 
-print('items %s | transitions %d | motor cells %d (concept code size %d)' % (
-    NITEMS, len(TRANS), NMOT, int(np.sum(CODES[0]))), flush=True)
+from torchvision.datasets import MNIST
 
-W_m = T_.zeros(NMOT, N5, device=DEV)
-for ep in range(80):
-    for a, b in TRANS:
-        x23, x5 = held_state(SIN[a])
-        W_m = T_.clamp(W_m + ETA * (1 - W_m) * (CODES_T[b].unsqueeze(1) * x5.unsqueeze(0)), 0, 1.0)
-        W_m = W_m * (MOT_BUD / W_m.sum(1, keepdim=True).clamp(min=1e-6))
-
-cbuf = [c for c in CODES]
-cnorm = [max(float(np.linalg.norm(v)), 1e-9) for v in cbuf]
+tr = MNIST(root=r'D:\deepseekherness\data', train=True, download=False)
+te = MNIST(root=r'D:\deepseekherness\data', train=False, download=False)
 
 
-def recog_concept(m):
-    v = m.cpu().numpy() if hasattr(m, 'cpu') else np.asarray(m)
-    v = v / max(float(np.linalg.norm(v)), 1e-9)
-    sims = [float(v @ cbuf[j]) / cnorm[j] for j in range(NITEMS)]
-    return int(np.argmax(sims)), float(np.max(sims))
+def prep(ds, n, seed):
+    r = np.random.default_rng(seed)
+    idx = r.choice(len(ds), n, replace=False)
+    X = np.zeros((n, S * S), np.float32)
+    Y = np.zeros(n, int)
+    for i, k in enumerate(idx):
+        img, lab = ds[int(k)]
+        X[i] = (np.asarray(img, np.float32) / 255.0).reshape(-1)
+        Y[i] = lab
+    return X, Y
 
 
-x23, x5 = held_state(SIN[CHAIN[0]])
-drive = W_m @ x5
-d = drive.cpu().numpy()
-tgt = CODES[CHAIN[1]]
-print('\nalignment: drive mass on-target %.3f | off-target %.3f (ratio %.2f)' % (
-    float(d[tgt > 0].sum()), float(d[tgt <= 0].sum()),
-    float(d[tgt > 0].sum()) / max(float(d[tgt <= 0].sum()), 1e-9)), flush=True)
-order = np.argsort(d)[::-1]
-for k in (10, 40, 70):
-    top = np.zeros(NMOT, bool)
-    top[order[:k]] = True
-    print('  top-%3d: precision %.2f | recall %.2f' % (
-        k, float((top & (tgt > 0)).sum() / k),
-        float((top & (tgt > 0)).sum() / max(int(tgt.sum()), 1))), flush=True)
+Xtr, ytr = prep(tr, N_TRAIN, 101)
+Xte, yte = prep(te, N_TEST, 108)
+Xt, Xe = T.as_tensor(Xtr, device=DEV), T.as_tensor(Xte, device=DEV)
 
-for th in (0.2, 0.4):
-    m = (d > th * MOT_BUD).astype(np.float32)
-    sp, s = recog_concept(T_.as_tensor(m, device=DEV))
-    print('  motor pattern (%.1f x budget): %4d cells -> spoken %s (sim %.2f) | want %s %s' % (
-        th, int(m.sum()), WORDS[sp], s, WORDS[CHAIN[1]],
-        'OK' if sp == CHAIN[1] else '--'), flush=True)
+vis = Local3DStack([(S, S, 1), (S, S, 16)], fan_in=4, bias_scale=1.0, seed=1, dev=DEV)
+vis.calibrate(Xt[:1000], target=ACT)
+with T.no_grad():
+    Atr = vis.forward(Xt)[-1]
+    Ate = vis.forward(Xe)[-1]
+n1 = Atr.shape[1]
+print('layer 1: %d cells, %.1f%% active (fixed)' % (n1, 100 * float(Atr.mean())), flush=True)
 
-print('\nchain with the concept-level motor readout:', flush=True)
-path = [CHAIN[0]]
-cur = CHAIN[0]
-for _ in range(len(CHAIN) - 1):
-    x23, x5 = held_state(SIN[cur])
-    dv = (W_m @ x5).cpu().numpy()
-    dv_n = dv / max(float(np.linalg.norm(dv)), 1e-9)
-    sims = [float(dv_n @ cbuf[j]) / cnorm[j] for j in range(NITEMS)]
-    nxt = int(np.argmax(sims))
-    path.append(nxt)
-    cur = nxt
-correct = sum(1 for i, v in enumerate(path[:len(CHAIN)]) if v == CHAIN[i])
-print('  %s' % ' '.join(WORDS[i][:6] for i in path[:8]), flush=True)
-print('  correct %d/%d' % (correct, len(CHAIN) - 1), flush=True)
-
-# ---------------- the three output pathways on top of the concept-level motor
-print('\nthe complete loop (concept-level motor):', flush=True)
-x23, x5 = held_state(SIN[CHAIN[0]])
-drive = W_m @ x5
-d = drive.cpu().numpy()
-motor_pattern = (d > 0.4 * MOT_BUD).astype(np.float32)
+rng = np.random.default_rng(2)
+IDX2 = T.as_tensor(np.stack([rng.choice(n1, FAN2, replace=False) for _ in range(N2)]), device=DEV)
+W2 = T.as_tensor((rng.random((N2, FAN2)).astype(np.float32) * 0.1), device=DEV)
+W2 = W2 / W2.sum(1, keepdim=True)
 
 
-def read_word_from(m):
-    return recog_concept(T_.as_tensor(m, device=DEV))
+def concept(a, th, bs=256):
+    out = []
+    with T.no_grad():
+        for i in range(0, len(a), bs):
+            out.append(((a[i:i + bs][:, IDX2] * W2.unsqueeze(0)).sum(-1) > th).float())
+    return T.cat(out, 0)
 
 
-print('  1 THINK (no GO): internal read = %s | motor cells %d' % (
-    WORDS[read_word_from(motor_pattern)[0]], 0), flush=True)
-think_ok = (read_word_from(motor_pattern)[0] == CHAIN[1])
-spoken, s = read_word_from(motor_pattern * 1.0)
-print('  2 ACT (GO): motor cells %d -> spoken %s (sim %.2f) | want %s %s' % (
-    int(motor_pattern.sum()), WORDS[spoken], s, WORDS[CHAIN[1]],
-    'OK' if spoken == CHAIN[1] else '--'), flush=True)
-act_ok = spoken == CHAIN[1]
-_ = motor_pattern * 0.0
-print('  3 HOLD (GO+HOLD): motor cells %d' % 0, flush=True)
-print('  summary: THINK %s | ACT %s | HOLD OK | chain %d/%d' % (
-    'OK' if think_ok else '--', 'OK' if act_ok else '--', correct, len(CHAIN) - 1), flush=True)
+def calibrate(a, target=A2, iters=14):
+    lo, hi = 0.0, 3.0
+    for _ in range(iters):
+        mid = 0.5 * (lo + hi)
+        if float(concept(a[:1000], mid).mean()) > target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+ACT_CELLS = [T.arange(d * PER, (d + 1) * PER, device=DEV) for d in range(NC)]
+Wm = T.zeros(MOTOR, N2, device=DEV)
+
+
+def answer(Y2):
+    d = Y2 @ Wm.T
+    dn = d / (Wm.norm(dim=1) + 1e-9)
+    scores = T.stack([dn[:, ACT_CELLS[c]].sum(1) for c in range(NC)], 1)
+    return scores.argmax(1).cpu().numpy()
+
+
+th = calibrate(Atr)
+ETA2, ETAM = 0.02, 0.05
+g = T.Generator(device=DEV).manual_seed(3)
+print('concept: %d cells | motor: %d cells (%d per action)' % (N2, MOTOR, PER), flush=True)
+
+for ep in range(EPOCHS):
+    order = T.randperm(len(Atr), device=DEV, generator=g)
+    for st in range(0, len(Atr), 256):
+        sel = order[st:st + 256]
+        a = Atr[sel]
+        y2 = concept(a, th)
+        # concept synapses learn from what they see (unsupervised Hebb)
+        hebb = (y2.unsqueeze(-1) * a[:, IDX2]).sum(0) / max(float(y2.sum()), 1.0)
+        W2 += ETA2 * (hebb - W2 * y2.mean())
+        W2.clamp_(min=0.0)
+        W2 /= W2.sum(1, keepdim=True).clamp(min=1e-9)
+        # binding to the action being performed (slow, so nothing is overwritten)
+        Wm *= (1.0 - 0.01)
+        for j, i in enumerate(sel.cpu().numpy()):
+            on2 = T.nonzero(y2[j] > 0).squeeze(1)
+            if on2.numel() == 0:
+                continue
+            tgt = ACT_CELLS[ytr[i]]
+            Wm[tgt.unsqueeze(1), on2.unsqueeze(0)] += ETAM
+    th = calibrate(Atr)
+    Ytr2, Yte2 = concept(Atr, th), concept(Ate, th)
+    print('  epoch %2d: train %.3f | held-out %.3f' % (
+        ep + 1, float((answer(Ytr2) == ytr).mean()), float((answer(Yte2) == yte).mean())), flush=True)
