@@ -10,7 +10,8 @@ From local3d-similarity (THRESHOLD_ACTIVATION.md, threednet/model.py):
         score_i  =  sum_j w_ij x_j + b_i
         active_i =  score_i > theta * (|b_i| + sum_j |w_ij|)
 
-    with ONE theta per layer, calibrated so that about 12 % of the cells are
+    with ONE theta per layer, calibrated to a target activation (the library default is 12 %;
+    the image model uses 20 %)
     active.  No top-k, no sorting, no E/I loop -- the sparsity comes from each
     cell's own weight budget.
 

@@ -105,7 +105,22 @@ print('', flush=True)
 print('QUESTION 3  motor area or representation?', flush=True)
 Ptr = T.as_tensor(P[Y != DIGIT] if False else P, device=DEV)
 An = Ptr / Ptr.norm(dim=1, keepdim=True).clamp(min=1e-9)
+# NOTE: this is a LEAVE-ONE-OUT (in-sample) nearest neighbour -- every test pattern is also in the
+# neighbour pool.  It is an upper bound on what the patterns can support, NOT a held-out score, and it
+# must not be compared with the held-out 0.764 below.  A held-out version is printed separately.
 ii = (An @ An.T).topk(6, dim=1).indices[:, 1:].cpu().numpy()
 pred = np.array([np.bincount(Y[r], minlength=NC).argmax() for r in ii])
-print('  same patterns, nearest-neighbour read-out : %.3f' % float((pred == Y).mean()), flush=True)
-print('  the motor read-out measured before        : 0.764', flush=True)
+print('  leave-one-out 5-NN on these patterns (upper bound, in-sample): %.3f' % float((pred == Y).mean()), flush=True)
+
+# held-out version: split the 3000 images into two halves, use one as the neighbour pool
+# random split (the data is ordered by digit, so a naive half/half would separate the classes)
+perm = np.random.default_rng(0).permutation(len(Y))
+half = len(Y) // 2
+i1, i2 = perm[:half], perm[half:]
+A1 = T.as_tensor(P[i1], device=DEV); A2 = T.as_tensor(P[i2], device=DEV)
+A1n = A1 / A1.norm(dim=1, keepdim=True).clamp(min=1e-9)
+A2n = A2 / A2.norm(dim=1, keepdim=True).clamp(min=1e-9)
+jj = (A2n @ A1n.T).topk(5, dim=1).indices.cpu().numpy()
+pred_h = np.array([np.bincount(Y[i1][r], minlength=NC).argmax() for r in jj])
+print('  held-out 5-NN on the same patterns (random split): %.3f' % float((pred_h == Y[i2]).mean()), flush=True)
+print('  the motor read-out on the 10000/1000 split     : see motor_multi.py (0.95)', flush=True)

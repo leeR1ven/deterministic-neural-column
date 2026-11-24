@@ -2,8 +2,8 @@
 # Exact patch versions are not pinned because they were not recorded at the time.
 torch>=2.0
 numpy>=1.24
+torchvision>=0.15      # only to load MNIST
 
-# NOTE ON DEVICE: most scripts hard-code DEV = 'cuda' (local_adapt2.py, walk_rel2.py,
-# pfc_blocks8.py, scale_more8.py, two_stage6.py) and will not run on a CPU-only machine.
-# A few newer ones (e.g. concept_final3.py) fall back to CPU automatically.
+# NOTE ON DEVICE: the scripts hard-code DEV = 'cuda'. The MNIST data is expected at
+# D:\deepseekherness\data (torchvision layout); change the path in `prep` if yours differs.
 # There is no CPU test suite; CPU numbers are not verified.
