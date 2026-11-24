@@ -143,8 +143,7 @@ def answer(W, q, maxlen=18, th=TH_A):
     F = T.zeros(DT, device=DEV)
     for w in q:
         F = step(F, heard(w))
-    F = step(F, T.zeros(DT, device=DEV))
-    V = T.zeros(DT, device=DEV)
+    V = T.zeros(DT, device=DEV)          # the key at the pause is built before the fade, exactly as in training
     out, peak = [], 0.0
     for _ in range(maxlen):
         k = T.cat([V, F])
@@ -167,7 +166,7 @@ pool = [pairs[i] for i in idx[40:]]
 print('', flush=True)
 print('train size | dialogue only        | dialogue + monologue', flush=True)
 print('           | exact  word-acc      | exact  word-acc', flush=True)
-for k in (25, 50, 100, 200):
+for k in (200,):
     row = []
     for with_mono in (False, True):
         ss = seqs(pool[:k], with_mono)
@@ -182,12 +181,36 @@ for k in (25, 50, 100, 200):
     print('   %3d     | %-26s | %s' % (k, row[0], row[1]), flush=True)
 
 print('', flush=True)
-print('what it actually says (200 pairs, dialogue only):', flush=True)
-W = train(seqs(pool[:200], False))
-for q, a in test[:5]:
+print('does it remember the dialogues it was trained on? (200 pairs, one matrix)', flush=True)
+ss = seqs(pool[:200], False)
+W = train(ss)
+K, V = batch(ss)
+res = float((V - K @ W.T).abs().max())
+tr = 0
+for q, a in pool[:40]:
+    got, _ = answer(W, q)
+    tr += (got == a)
+te = 0
+for q, a in test:
+    got, _ = answer(W, q)
+    te += (got == a)
+print('  training fit: worst error on a trained transition %.3f' % res, flush=True)
+with T.no_grad():
+    Kn = K / K.norm(dim=1, keepdim=True).clamp(min=1e-9)
+    Sm = Kn @ Kn.T
+    same = (Sm > 0.995).fill_diagonal_(False)
+    diff = (V @ V.T) < 0.5                      # targets different
+    clash = int((same & diff).sum()) // 2
+    print('  transitions whose state is the same but whose next word differs: %d pairs' % clash, flush=True)
+    print('  mean training error %.3f' % float((V - K @ W.T).abs().mean()), flush=True)
+print('  answers exactly right on 40 trained questions : %d/40' % tr, flush=True)
+print('  answers exactly right on 40 held-out questions: %d/40' % te, flush=True)
+print('', flush=True)
+print('what it says on a trained question and on a held-out one:', flush=True)
+for label, q, a in (('trained', pool[0][0], pool[0][1]), ('held-out', test[0][0], test[0][1])):
     for th in (0.7, 0.5):
         got, peak = answer(W, q, th=th)
-        print('  Q: %-34s | th %.1f peak %.2f | A: %s'
-              % (' '.join(vocab[w] for w in q)[:34], th, peak,
-                 ' '.join(vocab[w] for w in got)[:44] or '(silence)'), flush=True)
-    print('  %-34s   want: %s' % ('', ' '.join(vocab[w] for w in a)[:44]), flush=True)
+        print('  %-8s Q: %-30s | th %.1f peak %.2f | A: %s'
+              % (label, ' '.join(vocab[w] for w in q)[:30], th, peak,
+                 ' '.join(vocab[w] for w in got)[:40] or '(silence)'), flush=True)
+    print('  %-8s    want: %s' % ('', ' '.join(vocab[w] for w in a)[:40]), flush=True)
