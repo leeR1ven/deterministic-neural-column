@@ -101,17 +101,38 @@ for ep in range(EPOCHS):
         A = Atr[sel]
         y = ytr[sel]
         s = sims(A)
-        cls = (T.as_tensor(y, device=DEV) * M).unsqueeze(1) + T.arange(M, device=DEV).unsqueeze(0)
-        own = Wm.reshape(NC, M, -1)[T.as_tensor(y, device=DEV)]
+        yt = T.as_tensor(y, device=DEV)
+        cls = (yt * M).unsqueeze(1) + T.arange(M, device=DEV).unsqueeze(0)
+        cls_sim = s.gather(1, cls)
+        own = Wm.reshape(NC, M, -1)[yt]
         free = (own.sum(-1) <= 1e-6)
-        who = T.where(free.any(1), free.float().argmax(1), s.gather(1, cls).argmax(1))
-        rows = T.as_tensor(y, device=DEV) * M + who
-        empty = Wm[rows].sum(1) <= 1e-6
-        if bool(empty.any()):
-            Wm[rows[empty]] = A[empty]
-        nz = ~empty
-        if bool(nz.any()):
-            Wm.index_add_(0, rows[nz], ETA * (A[nz] - Wm[rows[nz]]))
+        # each image gets its own empty cell (see motor_multi.teach)
+        free_np = free.cpu().numpy()
+        sim_np = cls_sim.cpu().numpy()
+        y_np = np.asarray(y)
+        who = sim_np.argmax(1)
+        take = np.zeros(len(y_np), bool)
+        used = {}
+        for i in range(len(y_np)):
+            c = int(y_np[i])
+            slots = np.flatnonzero(free_np[i])
+            k = used.get(c, 0)
+            if k < len(slots):
+                who[i] = slots[k]
+                used[c] = k + 1
+                take[i] = True
+            elif (~free_np[i]).any():
+                who[i] = int(np.where(free_np[i], -np.inf, sim_np[i]).argmax())
+            else:
+                who[i] = -1
+        who_t = T.as_tensor(who, device=DEV)
+        take_t = T.as_tensor(take, device=DEV)
+        rows = yt * M + who_t.clamp(min=0)
+        if bool(take_t.any()):
+            Wm[rows[take_t]] = A[take_t]
+        upd = (~take_t) & (who_t >= 0)
+        if bool(upd.any()):
+            Wm.index_add_(0, rows[upd], ETA * (A[upd] - Wm[rows[upd]]))
     print('  epoch %d done' % (ep + 1), flush=True)
 
 print('', flush=True)
