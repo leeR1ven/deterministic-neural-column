@@ -1,4 +1,4 @@
-"""Does it generalise when there is much more data -- dialogue and non-dialogue both?
+﻿"""Does it generalise when there is much more data -- dialogue and non-dialogue both?
 
 Up to now every conversation had its own connection matrix: the model remembered one dialogue. Here there is ONE
 matrix for all of them, and the question is whether the answer to a question it has never seen starts to come out.
@@ -27,7 +27,7 @@ sys.path.insert(0, BASE)
 from sensory import Local3DStack
 
 DEV = 'cuda' if T.cuda.is_available() else 'cpu'
-S, MZ, TH = 28, 2, 0.6
+S, MZ, TH = 28, 4, 0.6
 TH_A, ETA, ITERS = 0.7, 0.5, 400
 GMIN, GMAX, SCALE = 0.60, 0.99, 5.0
 D0 = S * S * MZ
@@ -67,7 +67,7 @@ print('%d pairs usable, %d words in the vocabulary, %d monologue words' % (len(p
 rng = np.random.default_rng(7)
 G = np.zeros((NV, S * S), np.float32)
 for i in range(1, NV):
-    G[i, rng.choice(S * S, 10, replace=False)] = 1.0
+    G[i, rng.choice(S * S, 4, replace=False)] = 1.0
 vis = Local3DStack([(S, S, 1), (S, S, MZ)], fan_in=4, bias_scale=1.0, seed=1, dev=DEV)
 vis.theta = [TH]
 mot = Local3DStack([(S, S, 1), (S, S, MZ)], fan_in=4, bias_scale=1.0, seed=2, dev=DEV)
@@ -195,7 +195,7 @@ for t in range(len(seq0) - 1):
     F = step(F, v)
 tgt = code(seq0[ip + 1][0], seq0[ip + 1][1])
 print('  decay    mean err   drive on the right next word at the pause   trained   held-out', flush=True)
-for lam in (1e-2, 1e-3, 1e-5, 1e-7):
+for lam in (1e-7,):
     W = train(ss, lam)
     K, V = batch(ss)
     err = float((V - K @ W.T).abs().mean())
