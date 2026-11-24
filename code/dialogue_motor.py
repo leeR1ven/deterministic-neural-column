@@ -1,4 +1,4 @@
-"""The designer's correction: a word the model says is not the same thing as a word it hears.
+﻿"""The designer's correction: a word the model says is not the same thing as a word it hears.
 
 In dialogue_turns.py both used the same code -- the picture. So "hear bye, then say bye" was two identical states
 in a row, which is the case that cannot work. But a word produced through the motor area is a different event
@@ -29,7 +29,7 @@ from sensory import Local3DStack
 
 DEV = 'cuda' if T.cuda.is_available() else 'cpu'
 S, MZ, TH = 28, 4, 0.6
-TH_A, ETA, EPOCHS = 0.7, 0.25, 600
+TH_A, ETA, EPOCHS = 0.7, 0.25, 1500
 GMIN, GMAX, SCALE = 0.60, 0.99, 5.0
 BLK = 20
 DATA = r'D:\deepseekherness\data\dialogue\tinytalks_v1.txt'
@@ -73,24 +73,36 @@ for i in range(1, NV):
     G[i, rng.choice(S * S, 10, replace=False)] = 1.0
 vis = Local3DStack([(S, S, 1), (S, S, MZ)], fan_in=4, bias_scale=1.0, seed=1, dev=DEV)
 vis.theta = [TH]
+mot = Local3DStack([(S, S, 1), (S, S, MZ)], fan_in=4, bias_scale=1.0, seed=2, dev=DEV)
+mot.theta = [TH]                                     # the motor area: same design as the visual one
 with T.no_grad():
     P = vis.forward(T.as_tensor(G, device=DEV))[-1].float()
+    M = mot.forward(T.as_tensor(G, device=DEV))[-1].float()
 D = P.shape[1]
 NA = float(P[1:].sum(1).mean())
 GAM = T.as_tensor(np.random.default_rng(5).uniform(GMIN, GMAX, D).astype(np.float32), device=DEV)
 
-SPK = T.zeros(NV, D, device=DEV)                      # spoken code: its own block of cells
+SPK = M                                # the spoken code of a word is its motor region's pattern
+print('vocabulary %d words, %d cells; motor patterns %d cells on average'
+      % (NV, D, int(M[1:].sum(1).mean())), flush=True)
+
+# readout cells: 20 per word, each taking four of that word's motor cells, plus the basal-ganglia inhibition
+MPW = 20
+mrng = np.random.default_rng(13)
+MOT = T.zeros(NV, MPW, 4, dtype=T.long)
 for w in range(1, NV):
-    SPK[w, w * BLK:(w + 1) * BLK] = 1.0
-print('vocabulary %d words, %d cells, spoken blocks %d cells each' % (NV, D, BLK), flush=True)
+    idx = (SPK[w] > 0.5).nonzero().flatten()
+    MOT[w] = T.as_tensor(idx[mrng.integers(0, len(idx), MPW * 4)].reshape(MPW, 4), device=DEV)
+MOT = MOT.to(DEV)
 
 
 def speak(fired, bg):
     best, conf = SIL, 0.0
     for w in range(1, NV):
-        s = 4.0 * fired[w * BLK:(w + 1) * BLK].mean() - (3.0 if bg else 0.0)
-        if s > 3.5 and float(fired[w * BLK:(w + 1) * BLK].mean()) > conf:
-            best, conf = w, float(fired[w * BLK:(w + 1) * BLK].mean())
+        s = fired[MOT[w]].sum(1) - (3.0 if bg else 0.0)
+        act = float((s > 3.5).float().mean())
+        if act > conf:
+            best, conf = w, act
     return (best if conf > 0.4 else None), conf
 
 
