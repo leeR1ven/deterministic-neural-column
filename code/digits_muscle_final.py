@@ -29,6 +29,7 @@ MACT = float(sys.argv[4]) if len(sys.argv) > 4 else 0.05
 DEV = 'cuda' if T.cuda.is_available() else 'cpu'
 S = 28
 NC = 10
+RSEED = int(os.environ.get("RSEED", "1"))
 
 from torchvision.datasets import MNIST
 
@@ -37,7 +38,7 @@ te = MNIST(root=r'D:\deepseekherness\data', train=False, download=False)
 
 
 def prep(ds, n, seed):
-    r = np.random.default_rng(seed)
+    r = np.random.default_rng(seed + RSEED * 100)
     idx = r.choice(len(ds), n, replace=False)
     X = np.zeros((n, S * S), np.float32)
     Y = np.zeros(n, int)
@@ -52,7 +53,7 @@ Xtr, ytr = prep(tr, N_TRAIN, 1)
 Xte, yte = prep(te, N_TEST, 2)
 
 # ---------------- visual side ----------------
-vis = Local3DStack([(S, S, 1), (S, S, 4), (S, S, 8)], fan_in=4, seed=1, dev=DEV)
+vis = Local3DStack([(S, S, 1), (S, S, 4), (S, S, 8)], fan_in=4, seed=RSEED, dev=DEV)
 vis.calibrate(T.as_tensor(Xtr[:400], device=DEV), target=VACT)
 with T.no_grad():
     Vtr = vis.forward(T.as_tensor(Xtr, device=DEV))[-1]
@@ -62,7 +63,7 @@ print('visual: %d cells | active %.1f%%' % (Vtr.shape[1], 100 * float(Vtr.mean()
 # ---------------- motor side: an action is a signal through its own local stack ----------------
 ACT_SIGNALS = np.stack([np.clip(np.random.default_rng(100 + c).normal(0.5, 0.25, 64), 0, 1)
                         for c in range(NC)]).astype(np.float32)
-mot = Local3DStack([(16, 16, 1), (16, 16, 4)], fan_in=4, seed=7, dev=DEV)
+mot = Local3DStack([(8, 8, 1), (8, 8, 8)], fan_in=4, seed=7, dev=DEV)
 mot.calibrate(T.as_tensor(ACT_SIGNALS, device=DEV), target=MACT)
 with T.no_grad():
     M = mot.forward(T.as_tensor(ACT_SIGNALS, device=DEV))[-1]     # (10, motor cells)
@@ -112,10 +113,13 @@ print('motor read-out theta %.3f -> %.1f%% fire' % (
 
 
 def readout(V):
-    fire = (drive(V) > THM).float()
-    inter = fire @ M.T
-    union = fire.sum(1, keepdim=True) + M.sum(1).unsqueeze(0) - inter
-    return (inter / (union + 1e-9)).argmax(1).cpu().numpy()
+    """region collapse: an action is the REGION its cells occupy, so the score is the drive
+    arriving at that region, not whether the drive crossed a threshold.  All cells of one
+    action end up with the same weights during binding, so thresholding would throw away the
+    only thing that differs between actions: how much drive each region receives."""
+    d = drive(V)                                  # (n, motor cells)
+    score = d @ M.T / (M.sum(1).unsqueeze(0) + 1e-9)
+    return score.argmax(1).cpu().numpy()
 
 
 def concept_acc(A, B):
