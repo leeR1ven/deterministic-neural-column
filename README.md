@@ -436,3 +436,49 @@ if  X  then  Y  .  X  therefore  Y
 `sentence_ctx4.py`（容量扫描）、`sentence_sweep.py`（20 句随机）、
 `sentence_repeats.py`（间隔重复 + 停顿）、`run_length.py`（单一衰减的时长分辨）、
 `long_context.py` / `long_context2.py`（多时间常数、数连续重复）、`long_context3.py`（回归检查）。
+
+---
+
+## 第一次对话：听 → 该它说 → 说 → 停
+
+**范围**：一次只教一组问答（一个对话一个连接矩阵），所以这是"记住这段对话、轮到它时按顺序说回来"，
+**不是"听懂没见过的提问"**。数据用 tinytalks 的前 8 个短问答，词表 46 个词（含标点），
+每个词是一张随机小图（10 个亮点）→ 视觉层 → 模式。
+
+### 运动区与基底节（回合的开关）
+
+每个词 20 个运动细胞，每个细胞拿该词的 4 个细胞（权重各 1）+ **基底节的一条抑制输入（权重 −3）**，
+阈值 0.5×总权重 = 3.5：
+
+| 基底节 | 得分 | 结果 |
+|---|---|---|
+| 活跃（外界在说） | 4 − 3 = 1 < 3.5 | 运动区**一个细胞都不亮**，模型不发声 |
+| 安静（该模型说） | 4 > 3.5 | 说出这个词 |
+
+回合：外界说完最后一个词后**停一下**（静音帧），然后基底节关掉，模型自己的输出接回输入端往下走；
+走到静音就停（话说完了），回合交回外界。整条链上没有 if、没有状态机，抑制就是一条权重。
+
+### 结果
+
+**8 个问答里 7 个一字不差**：听的时候运动区全静，答案完整说出，最后自己停在静音上。
+
+```
+Q: how many hours in a day ?   -> there are twenty-four hours in a day .   ok
+Q: is a car a vehicle ?        -> yes , a car is a vehicle .               ok
+Q: what is 5 times 2 ?         -> 5 times 2 equals 10 .                   ok
+Q: where do you learn ?        -> you learn at school .                   ok
+Q: say hello .                 -> hello ! how are you ?                    ok
+Q: what do cows eat ?          -> cows eat grass and hay .                 ok
+Q: my name is alice .          -> nice to meet you , alice !              ok
+Q: bye !                       -> (静音)                                  失败
+```
+
+### 失败的地方（诚实）
+
+1. `bye !` 的答案是 `bye ! see you later !`——**答案开头要重复对方刚说的词**。模型直接静音。
+   这是重复词的老问题，虽然中间已经隔了一个停顿帧。
+2. **两轮对话不行**：第一轮答案完全正确、并且正确地停在静音上；但**第二轮答不出来**（静音）。
+   34 帧的序列现在学不好，残差 0.29。
+
+**结论：单轮问答 + "该谁说"已经能跑（7/8，听的时候不吭声、说完自己停）；多轮还不行，
+"答案重复对方最后一词"也不行。代码：`code/dialogue_turns.py`。**
